@@ -168,6 +168,20 @@ with tabs[2]:
     temp = st.selectbox("Temperature", list(TEMPERATURE_MAP.keys()) + [10, 25, 40])
     hum = st.selectbox("Humidity", list(HUMIDITY_MAP.keys()) + [20, 60, 80])
 
+    st.markdown("#### 🌍 Field & Water (optional — for a concrete plan)")
+    colA, colB = st.columns(2)
+    with colA:
+        terrain = st.selectbox("Terrain (slope)", ["flat", "gentle", "steep"],
+                               help="flat = 0–2%, gentle = 2–8%, steep = >8%")
+        soil_texture = st.selectbox("Soil texture", ["loam", "sandy", "clay"])
+    with colB:
+        area_ha = st.number_input("Field area (hectares)", 0.0, 1000.0, 0.0, step=0.1,
+                                  help="0 = skip the water plan")
+        debit_lpm = st.number_input("Water flow rate / débit (L/min)", 0.0, 100000.0, 0.0, step=10.0,
+                                    help="0 = unknown")
+    water_available_m3 = st.number_input("Water available (m³)", 0.0, 1000000.0, 0.0, step=1.0,
+                                         help="0 = unknown / unlimited")
+
     if st.button("💧 Recommend Irrigation"):
         soil_val = to_mid(soil)
         temp_val = to_mid(temp)
@@ -176,7 +190,14 @@ with tabs[2]:
         if None in (soil_val, temp_val, hum_val):
             st.warning("⚠️ Please enter valid values.")
         else:
-            recommendation = get_irrigation_recommendation(soil_val, temp_val, hum_val, crop)
+            recommendation = get_irrigation_recommendation(
+                soil_val, temp_val, hum_val, crop,
+                terrain=terrain,
+                soil_texture=soil_texture,
+                area_ha=area_ha or None,
+                water_available_m3=water_available_m3 or None,
+                debit_lpm=debit_lpm or None,
+            )
             st.success(recommendation)
 
 # Chat with AgriBot
@@ -244,14 +265,16 @@ with tabs[4]:
 
 
 # start tab 5 which is about climate impact on agriculture, a research based ML project
-# Load model and encoder once
+# Load model and encoder once.
+# NB: kept under distinct names so they don't overwrite the crop-recommendation
+# `model`/`le` (xgb) loaded at the top — those are used by predict_crop().
 @st.cache_resource
-def load_model():
-    model = joblib.load("random_forest_model.joblib")
-    le = joblib.load("label_encoder.joblib")
-    return model, le
+def load_yield_model():
+    yield_model = joblib.load("random_forest_model.joblib")
+    yield_le = joblib.load("label_encoder.joblib")
+    return yield_model, yield_le
 
-model, le = load_model()
+yield_model, yield_le = load_yield_model()
 
 # =======================
 # Tab 5: Prediction Page
@@ -279,7 +302,7 @@ By integrating climate-aware crop yield prediction, the platform evolves into a 
 						with st.form("yield_prediction_form"):
 							st.markdown("### 🌍 Climate & Region")
 							year = st.number_input("Year", min_value=2000, max_value=2100, value=2024)
-							region = st.selectbox("Region", le.classes_)
+							region = st.selectbox("Region", yield_le.classes_)
 
 							st.markdown("### 🌡️ Climate Features")
 							temp = st.slider("Average Temperature (°C)", 0.0, 50.0, 25.0)
@@ -296,7 +319,7 @@ By integrating climate-aware crop yield prediction, the platform evolves into a 
 							submitted = st.form_submit_button("📊 Predict Crop Yield")
 
 							if submitted:
-								region_encoded = le.transform([region])[0]
+								region_encoded = yield_le.transform([region])[0]
 								temp_x_rain = temp * rain
 								weather_impact = events * temp
 								temp_sq = temp ** 2
@@ -319,7 +342,7 @@ By integrating climate-aware crop yield prediction, the platform evolves into a 
 								]])
 
 								# Predict
-								prediction = model.predict(X_input)[0]
+								prediction = yield_model.predict(X_input)[0]
 
 								st.success(f"✅ **Predicted Crop Yield: {prediction:.2f} tons/hectare**")
 
