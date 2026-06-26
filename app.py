@@ -3,7 +3,7 @@ import sqlite3
 import requests
 import numpy as np
 import pickle
-from irrigation import get_irrigation_recommendation
+from irrigation import get_irrigation_plan
 from PIL import Image
 import streamlit.components.v1 as components
 import joblib
@@ -79,72 +79,119 @@ def predict_crop(input_features):
     return predicted_crop
 
 # UI
-st.set_page_config(page_title="AgriAssistant", page_icon="🌾", layout="wide")
+st.set_page_config(page_title="AgriAssistant", page_icon="🌾", layout="centered")
 
-# Light visual polish (colours come from .streamlit/config.toml; this just refines
-# spacing, cards, tabs and buttons without changing any behaviour).
+# Modern-SaaS styling. Colours come from .streamlit/config.toml; this restyles
+# typography, the Streamlit chrome, tabs, inputs, buttons and metric cards.
 st.markdown("""
 <style>
-    /* Constrain content width and add breathing room */
-    .block-container { max-width: 1100px; padding-top: 2.5rem; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
-    /* Headings */
-    h1 { font-weight: 800; letter-spacing: -0.02em; }
-    h2, h3 { font-weight: 700; }
+    html, body, [class*="css"], .stMarkdown, button, input, select, textarea {
+        font-family: 'Inter', -apple-system, sans-serif;
+    }
 
-    /* Tab bar: pill-style, easier to scan */
-    .stTabs [data-baseweb="tab-list"] { gap: 6px; }
+    /* Hide Streamlit's default chrome for a cleaner product feel */
+    [data-testid="stHeader"], #MainMenu, footer, [data-testid="stToolbar"] {
+        display: none !important;
+    }
+
+    .block-container { max-width: 920px; padding-top: 2rem; padding-bottom: 4rem; }
+
+    /* Typography */
+    h1 { font-weight: 800; letter-spacing: -0.03em; }
+    h2 { font-weight: 700; letter-spacing: -0.02em; }
+    h3 { font-weight: 600; }
+    p, li { color: #3a463a; line-height: 1.6; }
+
+    /* Hero banner */
+    .hero {
+        background: linear-gradient(135deg, #2e7d32 0%, #43a047 60%, #66bb6a 100%);
+        border-radius: 24px; padding: 48px 40px; color: #fff; margin-bottom: 28px;
+        box-shadow: 0 12px 30px rgba(46,125,50,0.25);
+    }
+    .hero h1 { color: #fff; font-size: 2.6rem; margin: 0 0 8px 0; }
+    .hero p { color: rgba(255,255,255,0.92); font-size: 1.15rem; margin: 0; }
+    .hero .eyebrow {
+        text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.78rem;
+        font-weight: 700; color: rgba(255,255,255,0.8); margin-bottom: 14px;
+    }
+
+    /* Tab bar: clean underline pills */
+    .stTabs [data-baseweb="tab-list"] { gap: 4px; border-bottom: 1px solid #e6e9e6; }
     .stTabs [data-baseweb="tab"] {
-        background: #f1f8e9; border-radius: 8px 8px 0 0; padding: 8px 16px;
+        background: transparent; border-radius: 8px 8px 0 0; padding: 10px 18px;
+        font-weight: 600; color: #6b776b;
     }
-    .stTabs [aria-selected="true"] { background: #dcedc8; }
+    .stTabs [aria-selected="true"] { color: #2e7d32; }
 
-    /* Alert / result boxes: softer cards */
-    .stAlert { border-radius: 12px; border: 1px solid rgba(46,125,50,0.15); }
+    /* Inputs: rounded, white, subtle border */
+    [data-baseweb="select"] > div, .stNumberInput input, .stTextInput input {
+        border-radius: 10px !important; border-color: #dfe4df !important;
+        background: #fff !important;
+    }
 
-    /* Inputs and buttons */
+    /* Buttons: solid green, pill */
     .stButton > button {
-        border-radius: 10px; font-weight: 600; padding: 0.5rem 1.25rem;
-        border: 1px solid rgba(46,125,50,0.25);
+        background: #2e7d32; color: #fff; border: none; border-radius: 12px;
+        font-weight: 600; padding: 0.6rem 1.5rem;
+        box-shadow: 0 4px 12px rgba(46,125,50,0.22); transition: all .15s ease;
     }
-    .stButton > button:hover { border-color: #2e7d32; color: #2e7d32; }
+    .stButton > button:hover {
+        background: #256528; color: #fff; transform: translateY(-1px);
+        box-shadow: 0 6px 16px rgba(46,125,50,0.3);
+    }
 
-    /* Section dividers a touch lighter */
-    hr { border-color: rgba(0,0,0,0.06); }
+    /* Metric cards */
+    [data-testid="stMetric"] {
+        background: #fff; border: 1px solid #e6e9e6; border-radius: 16px;
+        padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    [data-testid="stMetricLabel"] p { color: #6b776b; font-weight: 600; font-size: 0.82rem; }
+    [data-testid="stMetricValue"] { color: #1b5e20; font-weight: 800; }
+
+    /* Alert / result boxes as soft cards */
+    .stAlert { border-radius: 14px; border: 1px solid rgba(46,125,50,0.15); }
+
+    /* Section card for the detailed plan text */
+    .plan-card {
+        background: #f6faf4; border: 1px solid #e1ece0; border-radius: 16px;
+        padding: 18px 22px; margin-top: 8px; color: #2f3b2f; line-height: 1.7;
+    }
+    .plan-card .pill {
+        display: inline-block; background: #e8f5e9; color: #2e7d32;
+        border-radius: 999px; padding: 3px 12px; font-weight: 600; font-size: 0.85rem;
+        margin: 0 6px 6px 0;
+    }
 </style>
 """, unsafe_allow_html=True)
-
-st.title("🌾 AgriAssistant Dashboard")
 
 tabs = st.tabs(["🏡 Home", "🌱 Crop Recommendation", "💧 Irrigation", "Chat with AgriBot 🤖", "🤖 FAQ Chatbot", "🌾 Yield Prediction"])
 
 # Home Tab
 with tabs[0]:
-    st.markdown("# Welcome to AgriAssistant! 🌱")
-    st.markdown("### Empowering Farmers with AI-driven Insights")
-
     st.markdown("""
-        <div style="text-align: center; padding: 20px;">
-            <img src="https://i.pinimg.com/736x/9e/04/c9/9e04c9ddf8b801ff8ec074a8c3865ef8.jpg" 
-                alt="Farmers at work in the field" 
-                style="width: 500px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
-            <p style="font-style: italic; color: gray; margin-top: 8px;">Farmers at work in the field</p>
+        <div class="hero">
+            <div class="eyebrow">🌾 AgriAssistant</div>
+            <h1>Smart farming, powered by AI</h1>
+            <p>Crop recommendations, water-aware irrigation plans and climate-driven
+            yield forecasts — in one clean dashboard built for farmers.</p>
         </div>
     """, unsafe_allow_html=True)
 
-    st.write("""
-        **AgriAssistant** uses artificial intelligence to provide personalized insights for farmers, helping them make informed decisions for efficient farming. 
-        From crop recommendations to smart irrigation solutions, we aim to support farmers in maximizing yields and sustainability. 🌾
-    """)
-
-    st.markdown("### Key Features:")
-    st.write("""
-        - **Crop Recommendations**: AI-powered suggestions for the best crops based on weather, soil, and environmental conditions.
-        - **Irrigation Management**: Get irrigation recommendations tailored to your farm's needs.
-        - **AI Chatbot**: Instant answers to your farming-related questions.
-    """)
-
-    st.button("Start Exploring")
+    f1, f2, f3 = st.columns(3)
+    with f1:
+        st.markdown("""<div class="plan-card"><h3>🌱 Crop fit</h3>
+        <p>AI-picked crops from your soil nutrients, pH and local climate.</p></div>""",
+        unsafe_allow_html=True)
+    with f2:
+        st.markdown("""<div class="plan-card"><h3>💧 Irrigation</h3>
+        <p>Turn soil & weather into litres, passes and runtime for your field.</p></div>""",
+        unsafe_allow_html=True)
+    with f3:
+        st.markdown("""<div class="plan-card"><h3>🌾 Yield</h3>
+        <p>See how climate stress could shift your tons-per-hectare.</p></div>""",
+        unsafe_allow_html=True)
 
     st.markdown("### Watch our Introduction Video 🎥")
     components.html(
@@ -179,7 +226,14 @@ with tabs[1]:
         features = [N, P, K, temp, hum, pH, rainfall]
         try:
             crop = predict_crop(features)
-            st.success(f"🌾 Recommended Crop: **{crop}**")
+            st.markdown(f"""
+                <div class="plan-card" style="text-align:center;">
+                    <div style="color:#6b776b;font-weight:600;font-size:0.85rem;
+                        text-transform:uppercase;letter-spacing:0.08em;">Best-fit crop</div>
+                    <div style="font-size:2.2rem;font-weight:800;color:#1b5e20;
+                        text-transform:capitalize;margin-top:4px;">🌾 {crop}</div>
+                </div>
+            """, unsafe_allow_html=True)
         except Exception as e:
             st.error(f"Error: {e}")
 
@@ -224,7 +278,7 @@ with tabs[2]:
         if None in (soil_val, temp_val, hum_val):
             st.warning("⚠️ Please enter valid values.")
         else:
-            recommendation = get_irrigation_recommendation(
+            plan = get_irrigation_plan(
                 soil_val, temp_val, hum_val, crop,
                 terrain=terrain,
                 soil_texture=soil_texture,
@@ -232,7 +286,46 @@ with tabs[2]:
                 water_available_m3=water_available_m3 or None,
                 debit_lpm=debit_lpm or None,
             )
-            st.success(recommendation)
+            if plan.get("error"):
+                st.error(plan["error"])
+            else:
+                st.markdown(f"#### Plan for {crop}")
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Sprinkling", f"{plan['sprinkling']:.0f}%", plan["level"].title())
+                if plan["volume_m3"] is not None:
+                    m2.metric("Water needed", f"{plan['volume_m3']:.1f} m³",
+                              f"{plan['depth_mm']} mm depth")
+                else:
+                    m2.metric("Water depth", f"{plan['depth_mm']} mm", "add area for m³")
+                if plan["minutes"] is not None:
+                    m3.metric("Run time", f"{plan['minutes']:.0f} min",
+                              f"{plan['passes']} pass(es)")
+                else:
+                    m3.metric("Passes", f"{plan['passes']}", "add débit for time")
+
+                pills = "".join(f"<span class='pill'>{x}</span>" for x in plan["methods"])
+                detail = (
+                    f"<div class='plan-card'>{plan['message']}<br><br>"
+                    f"🌍 <b>Terrain:</b> {plan['terrain']} — suitable methods: {pills}<br>"
+                    f"🪨 <b>Soil:</b> {plan['soil_texture']} "
+                    f"(≈{plan['cap_mm']:.1f} mm max per pass before runoff)"
+                )
+                if plan["passes"] > 1:
+                    detail += (f"<br>⚠️ Split into <b>{plan['passes']} passes</b> "
+                               f"to avoid runoff/erosion on {plan['terrain']} land.")
+                if plan["minutes_per_pass"] is not None:
+                    detail += (f"<br>⏱️ ≈{plan['minutes_per_pass']:.0f} min per pass "
+                               f"at {plan['debit_lpm']:.0f} L/min.")
+                detail += "</div>"
+                st.markdown(detail, unsafe_allow_html=True)
+
+                if plan["covered"] is False:
+                    st.warning(f"🚱 Shortfall: you have {plan['water_available_m3']:.0f} m³ but "
+                               f"need {plan['volume_m3']:.1f} m³ "
+                               f"(missing {plan['shortfall_m3']:.1f} m³). "
+                               f"Reduce area or irrigate partially.")
+                elif plan["covered"] is True:
+                    st.success(f"✅ Your {plan['water_available_m3']:.0f} m³ covers the need.")
 
 # Chat with AgriBot
 with tabs[3]:

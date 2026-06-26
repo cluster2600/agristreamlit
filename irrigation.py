@@ -119,63 +119,99 @@ def _sprinkling_intensity(soil_input, temp_input, hum_input, crop_type):
     return round(sim.output['sprinkling'], 2)
 
 
-def get_irrigation_recommendation(soil_input, temp_input, hum_input, crop_type="general",
-                                  terrain="flat", soil_texture="loam",
-                                  area_ha=None, water_available_m3=None, debit_lpm=None):
-    """Recommend irrigation.
+def get_irrigation_plan(soil_input, temp_input, hum_input, crop_type="general",
+                        terrain="flat", soil_texture="loam",
+                        area_ha=None, water_available_m3=None, debit_lpm=None):
+    """Return a structured irrigation plan (dict) — the single source of truth.
 
-    Always returns the fuzzy sprinkling intensity. When terrain/soil/area/water are
-    supplied, it also turns that intensity into a concrete plan: method choice,
-    number of passes, litres of water needed and irrigation time at the given flow
-    rate (debit), plus a feasibility check against the water available.
+    Always includes the fuzzy sprinkling intensity and the terrain/soil method
+    advice. Volume / time / feasibility keys are populated only when the relevant
+    inputs (area, debit, available water) are supplied, otherwise they stay None.
+    On a fuzzy-computation failure the dict has just {"error": "..."}.
     """
     try:
         result = _sprinkling_intensity(soil_input, temp_input, hum_input, crop_type)
     except Exception as e:
-        return f"Error in fuzzy computation: {e}"
+        return {"error": f"Error in fuzzy computation: {e}"}
 
     if result < 30:
-        msg = "Low sprinkling level. Water lightly."
+        level, message = "low", "Low sprinkling level. Water lightly."
     elif result < 70:
-        msg = "Medium sprinkling level. Monitor and water moderately."
+        level, message = "medium", "Medium sprinkling level. Monitor and water moderately."
     else:
-        msg = "High sprinkling level. Strong irrigation recommended."
-
-    lines = [f"Recommended sprinkling: {result}%.", "", msg]
+        level, message = "high", "High sprinkling level. Strong irrigation recommended."
 
     terrain = (terrain or "flat").lower()
     soil_texture = (soil_texture or "loam").lower()
     t = TERRAIN.get(terrain, TERRAIN["flat"])
     cap = TEXTURE_MAX_DEPTH_MM.get(soil_texture, 8) * t["runoff_factor"]
+    depth_mm = round(result / 100.0 * MAX_DEPTH_MM, 1)
+    passes = max(1, ceil(depth_mm / cap)) if depth_mm > 0 else 0
 
-    demand_depth_mm = round(result / 100.0 * MAX_DEPTH_MM, 1)
-    passes = max(1, ceil(demand_depth_mm / cap)) if demand_depth_mm > 0 else 0
-
-    lines.append("")
-    lines.append(f"🌍 Terrain: {terrain} → suitable methods: {', '.join(t['methods'])}.")
-    lines.append(f"🪨 Soil: {soil_texture} (≈{cap:.1f} mm max per pass before runoff).")
-    if passes > 1:
-        lines.append(f"⚠️ Split into {passes} passes to avoid runoff/erosion on {terrain} land.")
+    plan = {
+        "error": None,
+        "sprinkling": result,
+        "level": level,
+        "message": message,
+        "terrain": terrain,
+        "methods": list(t["methods"]),
+        "soil_texture": soil_texture,
+        "cap_mm": round(cap, 1),
+        "depth_mm": depth_mm,
+        "passes": passes,
+        "area_ha": area_ha,
+        "debit_lpm": debit_lpm,
+        "water_available_m3": water_available_m3,
+        "volume_l": None,
+        "volume_m3": None,
+        "minutes": None,
+        "minutes_per_pass": None,
+        "shortfall_m3": None,
+        "covered": None,
+    }
 
     if area_ha:
         # 1 mm of water over 1 ha (10,000 m²) = 10,000 litres.
-        volume_l = demand_depth_mm * area_ha * 10000
-        volume_m3 = volume_l / 1000
-        lines.append("")
-        lines.append(f"💧 Water needed: ≈{volume_m3:.1f} m³ ({volume_l:,.0f} L) "
-                     f"for {area_ha} ha at {demand_depth_mm} mm.")
+        volume_l = depth_mm * area_ha * 10000
+        plan["volume_l"] = volume_l
+        plan["volume_m3"] = volume_l / 1000
         if debit_lpm:
-            minutes = volume_l / debit_lpm
-            per_pass = minutes / max(passes, 1)
-            lines.append(f"⏱️ Irrigation time: ≈{minutes:.0f} min total at {debit_lpm} L/min "
-                         f"(≈{per_pass:.0f} min/pass).")
+            plan["minutes"] = volume_l / debit_lpm
+            plan["minutes_per_pass"] = plan["minutes"] / max(passes, 1)
         if water_available_m3 is not None:
-            if volume_m3 > water_available_m3:
-                short = volume_m3 - water_available_m3
-                lines.append(f"🚱 Shortfall: have {water_available_m3} m³, need {volume_m3:.1f} m³ "
-                             f"(missing {short:.1f} m³). Reduce area or irrigate partially.")
+            if plan["volume_m3"] > water_available_m3:
+                plan["shortfall_m3"] = plan["volume_m3"] - water_available_m3
+                plan["covered"] = False
             else:
-                lines.append(f"✅ Water available ({water_available_m3} m³) covers the need.")
+                plan["covered"] = True
+
+    return plan
+
+
+def get_irrigation_recommendation(*args, **kwargs):
+    """Backwards-compatible text rendering of get_irrigation_plan()."""
+    plan = get_irrigation_plan(*args, **kwargs)
+    if plan.get("error"):
+        return plan["error"]
+
+    lines = [f"Recommended sprinkling: {plan['sprinkling']}%.", "", plan["message"], ""]
+    lines.append(f"🌍 Terrain: {plan['terrain']} → suitable methods: {', '.join(plan['methods'])}.")
+    lines.append(f"🪨 Soil: {plan['soil_texture']} (≈{plan['cap_mm']:.1f} mm max per pass before runoff).")
+    if plan["passes"] > 1:
+        lines.append(f"⚠️ Split into {plan['passes']} passes to avoid runoff/erosion on {plan['terrain']} land.")
+
+    if plan["volume_m3"] is not None:
+        lines.append("")
+        lines.append(f"💧 Water needed: ≈{plan['volume_m3']:.1f} m³ ({plan['volume_l']:,.0f} L) "
+                     f"for {plan['area_ha']} ha at {plan['depth_mm']} mm.")
+        if plan["minutes"] is not None:
+            lines.append(f"⏱️ Irrigation time: ≈{plan['minutes']:.0f} min total at {plan['debit_lpm']} L/min "
+                         f"(≈{plan['minutes_per_pass']:.0f} min/pass).")
+        if plan["covered"] is False:
+            lines.append(f"🚱 Shortfall: have {plan['water_available_m3']} m³, need {plan['volume_m3']:.1f} m³ "
+                         f"(missing {plan['shortfall_m3']:.1f} m³). Reduce area or irrigate partially.")
+        elif plan["covered"] is True:
+            lines.append(f"✅ Water available ({plan['water_available_m3']} m³) covers the need.")
 
     return "\n".join(lines)
 
@@ -183,20 +219,25 @@ def get_irrigation_recommendation(soil_input, temp_input, hum_input, crop_type="
 if __name__ == "__main__":
     # Smoke test: dry + hot + low humidity should call for strong irrigation, and the
     # practical plan must produce sane litres / time / feasibility numbers.
+    plan = get_irrigation_plan(
+        soil_input=10, temp_input=40, hum_input=20, crop_type="maize",
+        terrain="steep", soil_texture="clay",
+        area_ha=2.0, water_available_m3=5.0, debit_lpm=200,
+    )
     out = get_irrigation_recommendation(
         soil_input=10, temp_input=40, hum_input=20, crop_type="maize",
         terrain="steep", soil_texture="clay",
         area_ha=2.0, water_available_m3=5.0, debit_lpm=200,
     )
     print(out)
-    intensity = _sprinkling_intensity(10, 40, 20, "maize")
-    assert intensity > 50, f"expected high intensity, got {intensity}"
-    # 2 ha, steep clay -> demand depth ~ intensity/100*10 mm; volume = depth*2*10000 L.
-    depth = round(intensity / 100.0 * MAX_DEPTH_MM, 1)
-    expected_m3 = depth * 2.0 * 10000 / 1000
-    assert f"{expected_m3:.1f} m³" in out, f"volume math off: expected {expected_m3:.1f} m³"
-    # 5 m³ available, need > 5 m³ -> shortfall must be reported.
-    assert "Shortfall" in out, "expected a shortfall warning"
+    assert plan["sprinkling"] > 50, f"expected high intensity, got {plan['sprinkling']}"
+    # 2 ha, steep clay -> volume = depth*2*10000 L; time = volume/debit.
+    assert abs(plan["volume_m3"] - plan["depth_mm"] * 2.0 * 10) < 1e-6, "volume math off"
+    assert abs(plan["minutes"] - plan["volume_l"] / 200) < 1e-6, "time math off"
+    # 5 m³ available, need > 5 m³ -> shortfall reported, both in dict and text.
+    assert plan["covered"] is False and plan["shortfall_m3"] > 0, "expected a shortfall"
+    assert "Shortfall" in out, "expected a shortfall warning in text"
     # steep land -> drip only, no flood/furrow.
-    assert "flood/furrow" not in out, "steep land should not offer flood/furrow"
+    assert "flood/furrow" not in plan["methods"], "steep land should not offer flood/furrow"
+    assert "flood/furrow" not in out
     print("\nOK: irrigation self-check passed")
