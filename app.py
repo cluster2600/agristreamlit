@@ -79,7 +79,41 @@ def predict_crop(input_features):
     return predicted_crop
 
 # UI
-st.set_page_config(page_title="AgriAssistant", layout="wide")
+st.set_page_config(page_title="AgriAssistant", page_icon="🌾", layout="wide")
+
+# Light visual polish (colours come from .streamlit/config.toml; this just refines
+# spacing, cards, tabs and buttons without changing any behaviour).
+st.markdown("""
+<style>
+    /* Constrain content width and add breathing room */
+    .block-container { max-width: 1100px; padding-top: 2.5rem; }
+
+    /* Headings */
+    h1 { font-weight: 800; letter-spacing: -0.02em; }
+    h2, h3 { font-weight: 700; }
+
+    /* Tab bar: pill-style, easier to scan */
+    .stTabs [data-baseweb="tab-list"] { gap: 6px; }
+    .stTabs [data-baseweb="tab"] {
+        background: #f1f8e9; border-radius: 8px 8px 0 0; padding: 8px 16px;
+    }
+    .stTabs [aria-selected="true"] { background: #dcedc8; }
+
+    /* Alert / result boxes: softer cards */
+    .stAlert { border-radius: 12px; border: 1px solid rgba(46,125,50,0.15); }
+
+    /* Inputs and buttons */
+    .stButton > button {
+        border-radius: 10px; font-weight: 600; padding: 0.5rem 1.25rem;
+        border: 1px solid rgba(46,125,50,0.25);
+    }
+    .stButton > button:hover { border-color: #2e7d32; color: #2e7d32; }
+
+    /* Section dividers a touch lighter */
+    hr { border-color: rgba(0,0,0,0.06); }
+</style>
+""", unsafe_allow_html=True)
+
 st.title("🌾 AgriAssistant Dashboard")
 
 tabs = st.tabs(["🏡 Home", "🌱 Crop Recommendation", "💧 Irrigation", "Chat with AgriBot 🤖", "🤖 FAQ Chatbot", "🌾 Yield Prediction"])
