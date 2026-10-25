@@ -20,9 +20,6 @@ def test_pdf_data_retrieval(query):
     else:
         print("⚠️ No relevant information found. Try rephrasing your query.")
 
-# Test a query
-test_pdf_data_retrieval("wilt")
-
 # Initialize Database
 def init_db():
     """Create the farming_info table if it doesn't exist."""
@@ -157,11 +154,6 @@ def get_farming_info(query):
         return data[0]  # Return database answer if found
     else:
         return get_chatbot_response(query)  # Use AI if no match
-
-
-# Test Queries
-print(search_farming_info("wilt"))  # Should return PDF-stored data
-print(search_farming_info("maize")) # Should return manually inserted data
 
 
 # Initialize & Populate Database
